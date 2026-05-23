@@ -1,0 +1,45 @@
+{
+  "tools": [
+    {
+      "name": "mood_analyzer",
+      "description": "Analyze user text and return mood + polarity.",
+      "type": "http",
+      "method": "POST",
+      "url": "https://<your-project>.vercel.app/api/mood",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "Journal or chat text to analyze."
+          }
+        },
+        "required": ["text"]
+      }
+    },
+    {
+      "name": "music_recommender",
+      "description": "Return playlist seeds based on mood.",
+      "type": "http",
+      "method": "POST",
+      "url": "https://<your-project>.vercel.app/api/music_trigger",
+      "headers": {
+        "Content-Type": "application/json"
+      },
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "mood": {
+            "type": "string",
+            "enum": ["positive", "neutral", "negative"],
+            "description": "Mood label from mood_analyzer."
+          }
+        },
+        "required": ["mood"]
+      }
+    }
+  ]
+}
