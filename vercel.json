@@ -1,0 +1,16 @@
+{
+  "functions": {
+    "api/mood.py": {
+      "runtime": "python3.12",
+      "maxDuration": 10
+    },
+    "api/music_trigger.py": {
+      "runtime": "python3.12",
+      "maxDuration": 10
+    }
+  },
+  "rewrites": [
+    { "source": "/api/mood", "destination": "/api/mood" },
+    { "source": "/api/music_trigger", "destination": "/api/music_trigger" }
+  ]
+}

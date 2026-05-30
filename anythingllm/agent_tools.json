@@ -2,10 +2,10 @@
   "tools": [
     {
       "name": "mood_analyzer",
-      "description": "Analyze user text and return mood + polarity.",
+      "description": "Analyze user text sentiment. Returns: {mood: 'positive'|'neutral'|'negative', polarity: -1..1, trace_id: string, confidence: 0..1}",
       "type": "http",
       "method": "POST",
-      "url": "https://<your-project>.vercel.app/api/mood",
+      "url": "https://YOUR_PROJECT_NAME.vercel.app/api/mood",
       "headers": {
         "Content-Type": "application/json"
       },
@@ -14,18 +14,29 @@
         "properties": {
           "text": {
             "type": "string",
-            "description": "Journal or chat text to analyze."
+            "description": "Journal or chat text to analyze (max 10000 chars)",
+            "minLength": 1,
+            "maxLength": 10000
           }
         },
-        "required": ["text"]
+        "required": ["text"],
+        "examples": [
+          {"text": "I had a great day at the beach!"},
+          {"text": "The meeting was frustrating and unproductive."}
+        ]
+      },
+      "error_handling": {
+        "retry_on": [500, 502, 503, 504],
+        "retry_count": 3,
+        "error_response": "Returns {error: string, code: string, suggestion: string}"
       }
     },
     {
       "name": "music_recommender",
-      "description": "Return playlist seeds based on mood.",
+      "description": "Generate playlist seeds based on mood analysis. Returns: {seeds: string[], genres: string[], trace_id: string}",
       "type": "http",
       "method": "POST",
-      "url": "https://<your-project>.vercel.app/api/music_trigger",
+      "url": "https://YOUR_PROJECT_NAME.vercel.app/api/music_trigger",
       "headers": {
         "Content-Type": "application/json"
       },
@@ -35,11 +46,30 @@
           "mood": {
             "type": "string",
             "enum": ["positive", "neutral", "negative"],
-            "description": "Mood label from mood_analyzer."
+            "description": "Mood label from mood_analyzer tool output. Must be one of: positive, neutral, negative"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum number of seeds to return (default: 10)",
+            "minimum": 1,
+            "maximum": 50
           }
         },
-        "required": ["mood"]
+        "required": ["mood"],
+        "examples": [
+          {"mood": "positive"},
+          {"mood": "negative", "limit": 5}
+        ]
+      },
+      "error_handling": {
+        "retry_on": [400, 500, 502, 503, 504],
+        "retry_count": 3,
+        "error_response": "Returns {error: string, code: string, suggestion: string}"
       }
     }
-  ]
+  ],
+  "configuration": {
+    "note": "REPLACE YOUR_PROJECT_NAME in all URLs with your actual Vercel project name.",
+    "authentication": "Add Authorization header if your API requires it: \"Authorization\": \"Bearer YOUR_API_KEY\""
+  }
 }
