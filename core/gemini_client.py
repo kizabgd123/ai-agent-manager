@@ -54,9 +54,10 @@ class GeminiClient:
             return json.loads(raw)
 
     @staticmethod
+    @staticmethod
     def extract_text(response_json: Dict[str, Any]) -> str:
-        candidates = response_json.get("candidates", [])
-        if not candidates:
+        candidates = response_json.get("candidates") or []
+        if not candidates or candidates[0] is None:
             return ""
-        parts = candidates[0].get("content", {}).get("parts", [])
-        return "\n".join(part.get("text", "") for part in parts if part.get("text"))
+        content = candidates[0].get("content") or {}
+        parts = content.get("parts") or []
