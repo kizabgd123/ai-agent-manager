@@ -25,11 +25,19 @@ def _mood_from_gemini(text: str):
     )
     try:
         raw = client.generate(prompt)
-        response_text = client.extract_text(raw)
+        response_text = client.extract_text(raw).strip()
+        if response_text.startswith("```"):
+            lines = response_text.splitlines()
+            if lines and lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].startswith("```"):
+                lines = lines[:-1]
+            response_text = "\n".join(lines).strip()
         parsed = json.loads(response_text)
-        mood = parsed.get("mood")
-        if mood in {"positive", "neutral", "negative"}:
-            return {"provider": "gemini", "mood": mood, "confidence": parsed.get("confidence")}
+        if isinstance(parsed, dict):
+            mood = parsed.get("mood")
+            if mood in {"positive", "neutral", "negative"}:
+                return {"provider": "gemini", "mood": mood, "confidence": parsed.get("confidence")}
     except Exception:
         return None
     return None
