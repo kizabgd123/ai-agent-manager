@@ -2,7 +2,7 @@ import json
 import os
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
-from urllib import request
+from urllib import error, request
 
 
 @dataclass
