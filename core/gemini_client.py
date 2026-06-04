@@ -15,7 +15,10 @@ class GeminiConfig:
     def from_env(cls) -> "GeminiConfig":
         api_key = os.getenv("GEMINI_API_KEY", "")
         model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-        timeout_seconds = int(os.getenv("GEMINI_TIMEOUT_SECONDS", "30"))
+        try:
+            timeout_seconds = int(os.getenv("GEMINI_TIMEOUT_SECONDS", "30"))
+        except ValueError:
+            timeout_seconds = 30
         return cls(api_key=api_key, model=model, timeout_seconds=timeout_seconds)
 
 
