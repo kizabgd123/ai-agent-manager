@@ -98,9 +98,9 @@ class AutoBugFixWorkflow:
 
             parsed = self.parser.parse(signal)
             related_files = {
-                str(path): path.read_text(encoding="utf-8")
+                str(path): (repo_root / path).read_text(encoding="utf-8")
                 for path in tracked_files
-                if path.exists()
+                if (repo_root / path).exists()
             }
             patch = self.proposer.propose_unified_diff(parsed, related_files)
             apply_result = self.applier.apply(patch, repo_root)
