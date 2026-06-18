@@ -220,8 +220,9 @@ class MultiAgentPipeline:
         PipelineStage.DOCUMENTATION,
     )
 
-    def run(self, issue: GitHubIssue) -> dict[str, str]:
-        route = self.router.route(issue)
+    def run(self, issue: GitHubIssue, route: RouteDecision | None = None) -> dict[str, str]:
+        if route is None:
+            route = self.router.route(issue)
         artifact = issue.body
         outputs: dict[str, str] = {}
         for stage in self.stages:
@@ -254,7 +255,7 @@ class Orchestrator:
     def handle_github_issue(self, payload: Mapping[str, object]) -> dict[str, object]:
         issue = self.parse_issue(payload)
         route = self.router.route(issue)
-        outputs = self.pipeline.run(issue)
+        outputs = self.pipeline.run(issue, route=route)
         return {
             "issue": issue.number,
             "repository": issue.repository,
