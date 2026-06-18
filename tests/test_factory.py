@@ -97,3 +97,16 @@ def test_benchmark_harness_scores_all_agents_against_same_issue():
     assert len(results) == 4
     assert {row["agent"] for row in results} == set(registry.agents)
     assert all(row["scores"]["correctness"] == 1.0 for row in results)
+
+
+def test_benchmark_harness_keeps_sensitive_issues_on_local_agents():
+    registry = default_registry()
+    issue = GitHubIssue(8, "Security bug: leaked token", "Rotate secret credentials", ("security",))
+    harness = BenchmarkHarness(
+        registry=registry,
+        scoring=lambda agent, issue, output, elapsed: {"correctness": 1.0},
+    )
+
+    results = harness.run([issue], lambda agent, issue: f"{agent.name}: {issue.title}")
+
+    assert [row["agent"] for row in results] == ["ollama-local"]

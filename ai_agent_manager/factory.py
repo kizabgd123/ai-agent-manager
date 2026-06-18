@@ -270,15 +270,24 @@ class Orchestrator:
 
 @dataclass
 class BenchmarkHarness:
-    """Sends identical issues to all available agents and scores responses."""
+    """Sends identical issues to policy-eligible agents and scores responses."""
 
     registry: AgentRegistry
     scoring: Callable[[Agent, GitHubIssue, str, float], dict[str, float]]
+    router: RoutingEngine | None = None
 
     def run(self, issues: Iterable[GitHubIssue], worker: Callable[[Agent, GitHubIssue], str]) -> list[dict[str, object]]:
         results: list[dict[str, object]] = []
+        policy = self.router or RoutingEngine(self.registry)
+        issue_to_agents = []
         for issue in issues:
-            for agent in self.registry.available_agents():
+            sensitive = policy.is_sensitive(issue)
+            agents = [agent for agent in self.registry.available_agents() if not sensitive or agent.local_only]
+            if not agents:
+                raise ValueError(f"No available agent satisfies benchmarking security policy for issue {issue.number}")
+            issue_to_agents.append((issue, agents))
+        for issue, agents in issue_to_agents:
+            for agent in agents:
                 start = perf_counter()
                 output = worker(agent, issue)
                 elapsed = perf_counter() - start
