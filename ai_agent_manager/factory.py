@@ -279,11 +279,14 @@ class BenchmarkHarness:
     def run(self, issues: Iterable[GitHubIssue], worker: Callable[[Agent, GitHubIssue], str]) -> list[dict[str, object]]:
         results: list[dict[str, object]] = []
         policy = self.router or RoutingEngine(self.registry)
+        issue_to_agents = []
         for issue in issues:
             sensitive = policy.is_sensitive(issue)
             agents = [agent for agent in self.registry.available_agents() if not sensitive or agent.local_only]
             if not agents:
-                raise ValueError("No available agent satisfies benchmarking security policy")
+                raise ValueError(f"No available agent satisfies benchmarking security policy for issue {issue.number}")
+            issue_to_agents.append((issue, agents))
+        for issue, agents in issue_to_agents:
             for agent in agents:
                 start = perf_counter()
                 output = worker(agent, issue)
