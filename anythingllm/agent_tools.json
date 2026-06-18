@@ -5,7 +5,7 @@
       "description": "Analyze user text sentiment. Returns: {mood: 'positive'|'neutral'|'negative', polarity: -1..1, trace_id: string, confidence: 0..1}",
       "type": "http",
       "method": "POST",
-      "url": "https://YOUR_PROJECT_NAME.vercel.app/api/mood",
+      "url": "https://<your-project>.vercel.app/api/mood",
       "headers": {
         "Content-Type": "application/json"
       },
@@ -36,7 +36,7 @@
       "description": "Generate playlist seeds based on mood analysis. Returns: {seeds: string[], genres: string[], trace_id: string}",
       "type": "http",
       "method": "POST",
-      "url": "https://YOUR_PROJECT_NAME.vercel.app/api/music_trigger",
+      "url": "https://<your-project>.vercel.app/api/music_trigger",
       "headers": {
         "Content-Type": "application/json"
       },
@@ -69,7 +69,7 @@
     }
   ],
   "configuration": {
-    "note": "REPLACE YOUR_PROJECT_NAME in all URLs with your actual Vercel project name.",
+    "note": "REPLACE <your-project> in all URLs with your actual Vercel project name.",
     "authentication": "Add Authorization header if your API requires it: \"Authorization\": \"Bearer YOUR_API_KEY\""
   }
 }
