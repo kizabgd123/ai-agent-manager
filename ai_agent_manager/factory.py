@@ -184,8 +184,8 @@ class RoutingEngine:
             local_bonus = 0.02 if agent.local_only else 0.0
             return (agent.quality_score * learning) + local_bonus - (agent.cost_per_task * 0.01) - (agent.latency_ms / 100000)
 
-        selected = max(candidates, key=score)
-        return RouteDecision(selected, issue_type, language, domain, sensitive, score(selected))
+        best_score, selected = max(((score(agent), agent) for agent in candidates), key=lambda x: x[0])
+        return RouteDecision(selected, issue_type, language, domain, sensitive, best_score)
 
     @staticmethod
     def _detect(text: str, keyword_map: Mapping[str, Iterable[str]], default: str) -> str:
