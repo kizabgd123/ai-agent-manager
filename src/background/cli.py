@@ -8,6 +8,12 @@ from .mechanisms import BackgroundTaskRegistry
 
 
 def main() -> int:
+    """
+    CLI handler for background task management commands.
+    
+    Returns:
+        int: 0 (success exit code)
+    """
     parser = argparse.ArgumentParser(prog="tasks")
     parser.add_argument("command", choices=("list", "audit"))
     parser.add_argument("--ledger", default=".agent/tasks-ledger.jsonl")
