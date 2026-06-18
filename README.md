@@ -31,6 +31,22 @@ User ←──────── AnythingLLM (Groq/Gemini + RAG) ←────
                            └─────────────────┘
 ```
 
+
+## GitHub-Centric Multi-Agent Software Factory
+
+This project also includes a reference implementation for a GitHub-driven
+software factory workflow:
+
+```
+GitHub Issues → Orchestrator → Routing Engine → Agent Workers → Validation Pipeline → Pull Requests → Learning System
+```
+
+Core primitives live in `ai_agent_manager/factory.py` and cover issue parsing,
+classification, dynamic agent registry metadata, security-aware routing,
+multi-stage agent chaining, benchmarking, and retrospective routing feedback.
+See `docs_software_factory.md` for the implementation notes and production
+adapter roadmap.
+
 ## Quick Start
 
 ```bash
