@@ -3,8 +3,56 @@ Test suite for the Research Agent with MongoDB integration.
 """
 
 import pytest
-from pathlib import Path
-from unittest.mock import Mock, MagicMock
+
+
+class InMemoryCursor(list):
+    """Small MongoDB cursor double used for integration-style agent tests."""
+
+    def sort(self, _specification):
+        return self
+
+    def limit(self, count):
+        return InMemoryCursor(self[:count])
+
+
+class InMemoryCollection:
+    def __init__(self):
+        self.documents = []
+
+    def insert_one(self, document):
+        stored = dict(document)
+        stored["_id"] = len(self.documents) + 1
+        self.documents.append(stored)
+        return type("InsertOneResult", (), {"inserted_id": stored["_id"]})()
+
+    def find(self, filter_document, _projection=None):
+        if "$text" not in filter_document:
+            return InMemoryCursor(dict(document) for document in self.documents)
+
+        terms = filter_document["$text"]["$search"].lower().split()
+        matches = [
+            dict(document)
+            for document in self.documents
+            if any(
+                term in " ".join(
+                    [
+                        document["title"],
+                        document["abstract"],
+                        *document.get("keywords", []),
+                    ]
+                ).lower()
+                for term in terms
+            )
+        ]
+        return InMemoryCursor(matches)
+
+
+class InMemoryMongoClient:
+    def __init__(self):
+        self.collection = InMemoryCollection()
+
+    def __getitem__(self, _database):
+        return {"papers": self.collection, "test_collection": self.collection}
 
 
 class MockLLMClient:
@@ -47,7 +95,8 @@ class TestMongoDBTool:
         mongo_tool = MongoDBTool(
             atlas_uri="mongodb://localhost:27017",
             database="test_db",
-            collection="test_collection"
+            collection="test_collection",
+            client=InMemoryMongoClient(),
         )
         
         assert mongo_tool.database == "test_db"
@@ -57,10 +106,12 @@ class TestMongoDBTool:
         """Test inserting a paper into MongoDB."""
         from agent import MongoDBTool, Paper
         
+        client = InMemoryMongoClient()
         mongo_tool = MongoDBTool(
             atlas_uri="mongodb://localhost:27017",
             database="test_db",
-            collection="papers"
+            collection="papers",
+            client=client,
         )
         
         paper = Paper(
@@ -73,6 +124,7 @@ class TestMongoDBTool:
         
         result = mongo_tool.insert_paper(paper)
         assert result["status"] == "success"
+        assert client.collection.documents[0]["title"] == paper.title
     
     def test_mongodb_tool_search_returns_list(self):
         """Test that search returns a list."""
@@ -81,7 +133,8 @@ class TestMongoDBTool:
         mongo_tool = MongoDBTool(
             atlas_uri="mongodb://localhost:27017",
             database="test_db",
-            collection="papers"
+            collection="papers",
+            client=InMemoryMongoClient(),
         )
         
         results = mongo_tool.search_papers("test query", limit=5)
@@ -125,7 +178,7 @@ class TestResearchAgent:
         from agent import ResearchAgent, MongoDBTool, PaperSearchTool
         
         llm_client = MockLLMClient()
-        mongo_tool = MongoDBTool("", "test_db", "papers")
+        mongo_tool = MongoDBTool("", "test_db", "papers", client=InMemoryMongoClient())
         search_tool = PaperSearchTool()
         
         agent = ResearchAgent(llm_client, mongo_tool, search_tool)
@@ -140,7 +193,7 @@ class TestResearchAgent:
         from agent import ResearchAgent, MongoDBTool, PaperSearchTool
         
         llm_client = MockLLMClient()
-        mongo_tool = MongoDBTool("", "test_db", "papers")
+        mongo_tool = MongoDBTool("", "test_db", "papers", client=InMemoryMongoClient())
         search_tool = PaperSearchTool()
         
         agent = ResearchAgent(llm_client, mongo_tool, search_tool)
@@ -154,7 +207,7 @@ class TestResearchAgent:
         from agent import ResearchAgent, MongoDBTool, PaperSearchTool
         
         llm_client = MockLLMClient()
-        mongo_tool = MongoDBTool("", "test_db", "papers")
+        mongo_tool = MongoDBTool("", "test_db", "papers", client=InMemoryMongoClient())
         search_tool = PaperSearchTool()
         
         agent = ResearchAgent(llm_client, mongo_tool, search_tool)
@@ -176,7 +229,7 @@ class TestResearchAgent:
         from agent import ResearchAgent, MongoDBTool, PaperSearchTool
         
         llm_client = MockLLMClient()
-        mongo_tool = MongoDBTool("", "test_db", "papers")
+        mongo_tool = MongoDBTool("", "test_db", "papers", client=InMemoryMongoClient())
         search_tool = PaperSearchTool()
         
         agent = ResearchAgent(llm_client, mongo_tool, search_tool)
@@ -189,6 +242,33 @@ class TestResearchAgent:
         for i, log_entry in enumerate(workflow_log):
             assert "step" in log_entry
             assert "action" in log_entry or "result" in log_entry
+
+    def test_inserted_paper_is_retrieved_and_used_for_chat(self):
+        """Exercise persistence, retrieval, and RAG context as one flow."""
+        from agent import MongoDBTool, Paper, PaperSearchTool, ResearchAgent
+
+        client = InMemoryMongoClient()
+        mongo_tool = MongoDBTool("mongodb://test", "test_db", "papers", client=client)
+        paper = Paper(
+            title="Reliable Retrieval for Research Assistants",
+            authors=["Ada Lovelace"],
+            abstract="Indexed retrieval makes research answers grounded in papers.",
+            url="https://example.com/retrieval",
+            year=2025,
+            keywords=["retrieval", "RAG"],
+        )
+        mongo_tool.insert_paper(paper)
+
+        stored_papers = mongo_tool.get_all_papers()
+        assert stored_papers[0]["title"] == paper.title
+        assert mongo_tool.search_papers("grounded retrieval", limit=1)[0]["title"] == paper.title
+
+        llm_client = MockLLMClient()
+        agent = ResearchAgent(llm_client, mongo_tool, PaperSearchTool())
+        agent.chat_with_papers("What makes answers grounded?")
+
+        assert paper.title in llm_client.call_history[-1]
+        assert paper.abstract in llm_client.call_history[-1]
 
 
 class TestPaperDataClass:
@@ -234,15 +314,22 @@ class TestPaperDataClass:
 class TestCreateResearchAgent:
     """Tests for the factory function."""
     
-    def test_create_research_agent(self):
+    def test_create_research_agent(self, monkeypatch):
         """Test creating an agent via factory function."""
         from agent import create_research_agent
         from agent import ResearchAgent
         
         llm_client = MockLLMClient()
+        monkeypatch.setenv("MONGODB_DATABASE", "configured_db")
+        monkeypatch.setenv("MONGODB_COLLECTION", "configured_papers")
+        monkeypatch.setenv("MONGODB_USERNAME", "configured_user")
+        monkeypatch.setenv("MONGODB_PASSWORD", "configured_password")
         agent = create_research_agent(llm_client, mongo_uri="mongodb://localhost")
         
         assert isinstance(agent, ResearchAgent)
+        assert agent.mongo.database == "configured_db"
+        assert agent.mongo.collection == "configured_papers"
+        assert agent.mongo.username == "configured_user"
 
 
 if __name__ == "__main__":
