@@ -190,6 +190,47 @@ class TestResearchAgent:
             assert "step" in log_entry
             assert "action" in log_entry or "result" in log_entry
 
+    @pytest.mark.parametrize(
+        ("analysis_response", "expected_queries", "expected_fallback"),
+        [
+            (
+                '{"search_queries": ["  neural networks ", "machine learning safety", "", 42, "fourth query"]}',
+                ["neural networks", "machine learning safety", "fourth query"],
+                False,
+            ),
+            ("not valid JSON", ["Original research question"], True),
+            ('{"concepts": ["AI"]}', ["Original research question"], True),
+        ],
+        ids=["valid", "malformed", "missing_queries"],
+    )
+    def test_workflow_uses_validated_analysis_search_queries(
+        self, analysis_response, expected_queries, expected_fallback
+    ):
+        """Analysis queries drive searches, with a fallback for unusable responses."""
+        from agent import ResearchAgent, MongoDBTool, PaperSearchTool
+
+        llm_client = MockLLMClient()
+        llm_client.generate = Mock(side_effect=[
+            analysis_response,
+            *["Summary" for _ in expected_queries],
+            "Synthesis",
+            "Gaps",
+        ])
+        search_tool = PaperSearchTool()
+        search_tool.search = Mock(return_value=[])
+        agent = ResearchAgent(
+            llm_client,
+            MongoDBTool("", "test_db", "papers"),
+            search_tool,
+        )
+
+        result = agent.execute_research_workflow("Original research question")
+
+        assert [call.args[0] for call in search_tool.search.call_args_list] == expected_queries
+        analysis_log = result["workflow_log"][1]
+        assert analysis_log["search_queries"] == expected_queries
+        assert analysis_log["analysis_parse_fallback"] is expected_fallback
+
 
 class TestPaperDataClass:
     """Tests for the Paper data class."""

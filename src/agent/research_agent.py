@@ -104,6 +104,8 @@ class ResearchAgent:
     4. Store organized data in MongoDB
     5. Generate synthesis report with insights and gaps
     """
+
+    MAX_SEARCH_QUERIES = 3
     
     def __init__(self, llm_client, mongo_tool: MongoDBTool, search_tool: PaperSearchTool):
         self.llm = llm_client
@@ -206,14 +208,21 @@ class ResearchAgent:
         """
         
         analysis_response = self.llm.generate(analysis_prompt)
-        workflow_log.append({"step": 1, "result": "Analysis complete"})
+        search_queries, used_analysis_fallback = self._select_search_queries(
+            analysis_response, research_question
+        )
+        workflow_log.append({
+            "step": 1,
+            "result": "Analysis complete",
+            "search_queries": search_queries,
+            "analysis_parse_fallback": used_analysis_fallback,
+        })
         
         # Step 2: Search for papers
         workflow_log.append({"step": 2, "action": "Searching for relevant papers"})
-        search_queries = [research_question]  # Could extract from analysis
         found_papers = []
         
-        for query in search_queries[:3]:  # Limit searches
+        for query in search_queries:
             papers = self.search.search(query)
             found_papers.extend(papers)
             if len(found_papers) >= max_papers:
@@ -290,6 +299,33 @@ class ResearchAgent:
             "workflow_log": workflow_log,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }
+
+    @classmethod
+    def _select_search_queries(
+        cls, analysis_response: str, research_question: str
+    ) -> tuple[list[str], bool]:
+        """Return bounded, usable model-generated queries or a safe fallback."""
+        try:
+            analysis = json.loads(analysis_response)
+        except (TypeError, json.JSONDecodeError):
+            return [research_question], True
+
+        if not isinstance(analysis, dict):
+            return [research_question], True
+
+        raw_queries = analysis.get("search_queries")
+        if not isinstance(raw_queries, list):
+            return [research_question], True
+
+        search_queries = [
+            query.strip()
+            for query in raw_queries
+            if isinstance(query, str) and query.strip()
+        ][: cls.MAX_SEARCH_QUERIES]
+        if not search_queries:
+            return [research_question], True
+
+        return search_queries, False
     
     def chat_with_papers(self, user_query: str, context_papers: list[dict] = None) -> str:
         """
