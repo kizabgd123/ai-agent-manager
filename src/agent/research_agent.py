@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import json
 import os
+import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Any
 from dataclasses import dataclass, field
@@ -70,27 +72,134 @@ class MongoDBTool:
 
 
 class PaperSearchTool:
-    """Tool for searching academic papers via external APIs."""
+    """Search papers through the Semantic Scholar Graph API.
+
+    Semantic Scholar documents its paper-search endpoint at
+    ``https://api.semanticscholar.org/api-docs/graph#tag/Paper-Data/operation/
+    get_graph_paper_search``.  The API key is optional for low-volume requests,
+    but is sent when one has been configured.
+    """
+
+    API_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
+    DEFAULT_LIMIT = 10
+    MAX_LIMIT = 100
+    FIELDS = "title,authors,abstract,url,year,venue,fieldsOfStudy"
     
     def __init__(self, api_key: str = ""):
         self.api_key = api_key
         # Could integrate with: Semantic Scholar, arXiv, PubMed, etc.
     
-    def search(self, query: str, year_range: tuple[int, int] = None) -> list[Paper]:
-        """Search for papers matching the query."""
-        # Simulated results - in production call actual API
-        papers = [
-            Paper(
-                title=f"Research Paper on {query}",
-                authors=["Author A", "Author B"],
-                abstract=f"This paper explores {query} in depth...",
-                url="https://example.com/paper1",
-                year=2024,
-                venue="Example Conference",
-                keywords=[query, "research"]
-            )
-        ]
+    def search(
+        self,
+        query: str,
+        year_range: tuple[int, int] | None = None,
+        limit: int = DEFAULT_LIMIT,
+    ) -> list[Paper]:
+        """Return up to ``limit`` valid papers matching ``query``.
+
+        Invalid provider records and request/response failures produce no paper
+        rather than placeholder data.  ``year_range`` is applied locally as an
+        inclusive filter because the API may return records outside its search
+        constraints.
+        """
+        if not isinstance(query, str) or not query.strip():
+            return []
+
+        if not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0:
+            return []
+        limit = min(limit, self.MAX_LIMIT)
+
+        normalized_year_range = self._normalize_year_range(year_range)
+        if year_range is not None and normalized_year_range is None:
+            return []
+
+        params = {"query": query.strip(), "limit": limit, "fields": self.FIELDS}
+        url = f"{self.API_URL}?{urllib.parse.urlencode(params)}"
+        headers = {"Accept": "application/json"}
+        if self.api_key:
+            headers["x-api-key"] = self.api_key
+
+        try:
+            request = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(request, timeout=10) as response:
+                payload = json.load(response)
+        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, json.JSONDecodeError):
+            return []
+
+        records = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(records, list):
+            return []
+
+        papers = []
+        for record in records:
+            paper = self._map_record(record)
+            if paper is None:
+                continue
+            if normalized_year_range and not (
+                normalized_year_range[0] <= paper.year <= normalized_year_range[1]
+            ):
+                continue
+            papers.append(paper)
+            if len(papers) == limit:
+                break
         return papers
+
+    @staticmethod
+    def _normalize_year_range(year_range: tuple[int, int] | None) -> tuple[int, int] | None:
+        """Validate and normalize an inclusive publication-year range."""
+        if year_range is None:
+            return None
+        if (
+            not isinstance(year_range, tuple)
+            or len(year_range) != 2
+            or any(not isinstance(year, int) or isinstance(year, bool) for year in year_range)
+        ):
+            return None
+        start, end = year_range
+        return (start, end) if start <= end else None
+
+    @staticmethod
+    def _map_record(record: Any) -> Paper | None:
+        """Convert a valid Semantic Scholar record to a ``Paper`` instance."""
+        if not isinstance(record, dict):
+            return None
+
+        title = record.get("title")
+        year = record.get("year")
+        if (
+            not isinstance(title, str)
+            or not title.strip()
+            or not isinstance(year, int)
+            or isinstance(year, bool)
+        ):
+            return None
+
+        authors_data = record.get("authors", [])
+        if not isinstance(authors_data, list):
+            return None
+        authors = [
+            author["name"].strip()
+            for author in authors_data
+            if isinstance(author, dict)
+            and isinstance(author.get("name"), str)
+            and author["name"].strip()
+        ]
+
+        abstract = record.get("abstract")
+        url = record.get("url")
+        venue = record.get("venue")
+        fields = record.get("fieldsOfStudy", [])
+        return Paper(
+            title=title.strip(),
+            authors=authors,
+            abstract=abstract.strip() if isinstance(abstract, str) else "",
+            url=url.strip() if isinstance(url, str) else "",
+            year=year,
+            venue=venue.strip() if isinstance(venue, str) else "",
+            keywords=[field.strip() for field in fields if isinstance(field, str) and field.strip()]
+            if isinstance(fields, list)
+            else [],
+        )
 
 
 class ResearchAgent:

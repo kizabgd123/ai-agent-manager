@@ -2,9 +2,11 @@
 Test suite for the Research Agent with MongoDB integration.
 """
 
+import json
+import urllib.error
+from unittest.mock import MagicMock, patch
+
 import pytest
-from pathlib import Path
-from unittest.mock import Mock, MagicMock
 
 
 class MockLLMClient:
@@ -90,31 +92,96 @@ class TestMongoDBTool:
 
 class TestPaperSearchTool:
     """Tests for paper search functionality."""
-    
-    def test_search_returns_papers(self):
-        """Test that search returns a list of papers."""
-        from agent import PaperSearchTool, Paper
-        
-        search_tool = PaperSearchTool(api_key="test_key")
-        results = search_tool.search("machine learning")
-        
-        assert len(results) > 0
-        assert all(isinstance(p, Paper) for p in results)
-    
-    def test_paper_has_required_fields(self):
-        """Test that returned papers have required fields."""
+
+    @staticmethod
+    def _response(payload):
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.__exit__.return_value = False
+        response.read.return_value = json.dumps(payload).encode()
+        return response
+
+    def test_search_constructs_semantic_scholar_request(self):
+        """Build a URL-encoded request with requested fields and API key."""
         from agent import PaperSearchTool
-        
-        search_tool = PaperSearchTool()
-        results = search_tool.search("AI")
-        
-        if results:
-            paper = results[0]
-            assert hasattr(paper, 'title')
-            assert hasattr(paper, 'authors')
-            assert hasattr(paper, 'abstract')
-            assert hasattr(paper, 'url')
-            assert hasattr(paper, 'year')
+
+        response = self._response({"data": []})
+        with patch("agent.research_agent.urllib.request.urlopen", return_value=response) as urlopen:
+            PaperSearchTool(api_key="secret").search("graph neural networks", limit=3)
+
+        request = urlopen.call_args.args[0]
+        assert request.full_url.startswith(PaperSearchTool.API_URL)
+        assert "query=graph+neural+networks" in request.full_url
+        assert "limit=3" in request.full_url
+        assert "fields=title%2Cauthors%2Cabstract%2Curl%2Cyear%2Cvenue%2CfieldsOfStudy" in request.full_url
+        assert request.get_header("X-api-key") == "secret"
+        assert urlopen.call_args.kwargs["timeout"] == 10
+
+    def test_search_filters_years_and_enforces_limit(self):
+        """Apply an inclusive local year filter before returning the limit."""
+        from agent import PaperSearchTool
+
+        payload = {
+            "data": [
+                {"title": "Old", "year": 2019, "authors": []},
+                {"title": "Included one", "year": 2021, "authors": []},
+                {"title": "Included two", "year": 2022, "authors": []},
+                {"title": "Included three", "year": 2023, "authors": []},
+            ]
+        }
+        with patch("agent.research_agent.urllib.request.urlopen", return_value=self._response(payload)):
+            papers = PaperSearchTool().search("AI", year_range=(2021, 2023), limit=2)
+
+        assert [paper.title for paper in papers] == ["Included one", "Included two"]
+
+    def test_search_maps_provider_results_and_skips_malformed_records(self):
+        """Map supported Semantic Scholar fields without inventing paper data."""
+        from agent import PaperSearchTool, Paper
+
+        payload = {
+            "data": [
+                {
+                    "title": "  Mapped paper  ",
+                    "authors": [{"name": " Ada Lovelace "}, {"name": ""}, "invalid"],
+                    "abstract": " A useful abstract. ",
+                    "url": " https://example.org/paper ",
+                    "year": 2024,
+                    "venue": " TestConf ",
+                    "fieldsOfStudy": [" Computer Science ", 42],
+                },
+                {"title": "Missing year", "authors": []},
+                "not a record",
+            ]
+        }
+        with patch("agent.research_agent.urllib.request.urlopen", return_value=self._response(payload)):
+            papers = PaperSearchTool().search("AI")
+
+        assert len(papers) == 1
+        assert isinstance(papers[0], Paper)
+        assert papers[0] == Paper(
+            title="Mapped paper",
+            authors=["Ada Lovelace"],
+            abstract="A useful abstract.",
+            url="https://example.org/paper",
+            year=2024,
+            venue="TestConf",
+            keywords=["Computer Science"],
+        )
+
+    def test_search_returns_empty_list_for_empty_provider_results(self):
+        """Do not substitute fabricated papers when the provider finds none."""
+        from agent import PaperSearchTool
+
+        with patch("agent.research_agent.urllib.request.urlopen", return_value=self._response({"data": []})):
+            assert PaperSearchTool().search("obscure topic") == []
+
+    @pytest.mark.parametrize("error", [urllib.error.HTTPError("url", 500, "error", {}, None), urllib.error.URLError("offline")])
+    def test_search_returns_empty_list_for_provider_failures(self, error):
+        """Provider failures are handled without emitting placeholder records."""
+        from agent import PaperSearchTool
+
+        with patch("agent.research_agent.urllib.request.urlopen", side_effect=error):
+            assert PaperSearchTool().search("AI") == []
 
 
 class TestResearchAgent:
@@ -126,7 +193,8 @@ class TestResearchAgent:
         
         llm_client = MockLLMClient()
         mongo_tool = MongoDBTool("", "test_db", "papers")
-        search_tool = PaperSearchTool()
+        search_tool = MagicMock()
+        search_tool.search.return_value = []
         
         agent = ResearchAgent(llm_client, mongo_tool, search_tool)
         
@@ -141,7 +209,8 @@ class TestResearchAgent:
         
         llm_client = MockLLMClient()
         mongo_tool = MongoDBTool("", "test_db", "papers")
-        search_tool = PaperSearchTool()
+        search_tool = MagicMock()
+        search_tool.search.return_value = []
         
         agent = ResearchAgent(llm_client, mongo_tool, search_tool)
         
@@ -151,11 +220,12 @@ class TestResearchAgent:
     
     def test_execute_research_workflow(self):
         """Test the full research workflow execution."""
-        from agent import ResearchAgent, MongoDBTool, PaperSearchTool
+        from agent import ResearchAgent, MongoDBTool
         
         llm_client = MockLLMClient()
         mongo_tool = MongoDBTool("", "test_db", "papers")
-        search_tool = PaperSearchTool()
+        search_tool = MagicMock()
+        search_tool.search.return_value = []
         
         agent = ResearchAgent(llm_client, mongo_tool, search_tool)
         
@@ -173,11 +243,12 @@ class TestResearchAgent:
     
     def test_workflow_logs_steps(self):
         """Test that workflow logs each step."""
-        from agent import ResearchAgent, MongoDBTool, PaperSearchTool
+        from agent import ResearchAgent, MongoDBTool
         
         llm_client = MockLLMClient()
         mongo_tool = MongoDBTool("", "test_db", "papers")
-        search_tool = PaperSearchTool()
+        search_tool = MagicMock()
+        search_tool.search.return_value = []
         
         agent = ResearchAgent(llm_client, mongo_tool, search_tool)
         result = agent.execute_research_workflow("Test question", max_papers=1)
