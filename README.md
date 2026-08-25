@@ -40,7 +40,9 @@ pip install -r requirements.txt
 cp .env.example .env
 # Edit .env and add your API keys:
 # GEMINI_API_KEY=your_key_here
-# MONGODB_ATLAS_URI=mongodb://...
+# MONGODB_URI=mongodb+srv://<username>:<password>@<cluster>/<database>
+# MONGODB_DATABASE=research_assistant
+# MONGODB_COLLECTION=papers
 ```
 
 ### Run the Research Agent
@@ -130,6 +132,19 @@ Configuration via environment variables:
 - `LLM_MODEL` (default: `gemini-2.5-flash`)
 - `GEMINI_API_KEY` (required)
 - `LLM_TEMPERATURE` (default: `0.0`)
+
+### MongoDB configuration
+
+The research agent uses the official MongoDB Python driver. Configure its
+endpoint and target with `MONGODB_URI`, `MONGODB_DATABASE` (default:
+`research_assistant`), and `MONGODB_COLLECTION` (default: `papers`). If the
+URI does not include credentials, set `MONGODB_USERNAME`, `MONGODB_PASSWORD`,
+and optionally `MONGODB_AUTH_SOURCE`. `MONGODB_ATLAS_URI` remains supported as
+a backwards-compatible alias for `MONGODB_URI`.
+
+Create a MongoDB text index on the `title`, `abstract`, and `keywords` fields
+before calling `search_papers`; it uses indexed `$text` search and returns the
+highest-scoring records first.
 
 ## Deployment
 
